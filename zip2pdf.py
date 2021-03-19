@@ -25,6 +25,7 @@ SOFTWARE.
 import io
 import os
 import pathlib
+import traceback
 from typing import List
 import PIL
 import zipfile
@@ -53,7 +54,7 @@ def change_file_name_ext(original_file_name: str, new_ext: str) -> str:
     return modified_file_name
 
 
-def convert_report_lab(zip_file_name: str, out_folder: Path) -> None:
+def convert_reportlab(zip_file_name: str, out_folder: Path) -> None:
     """
     Converts the entire Zip images as a single PDF. Individual IOError from each image is ignored.
     Uses ReportLab PDF Canvas.
@@ -63,7 +64,7 @@ def convert_report_lab(zip_file_name: str, out_folder: Path) -> None:
     """
     print(f"Process zip: '{zip_file_name}' using reportlab")
     pdf_file_name: str = change_file_name_ext(zip_file_name, "pdf")
-    pdf_file_path: str = Path.resolve(out_folder, pdf_file_name)
+    pdf_file_path: str = str(out_folder.joinpath(pdf_file_name).resolve())
 
     with zipfile.ZipFile(zip_file_name, "r") as zip_input:
         rl_canvas = canvas.Canvas(pdf_file_path, pagesize=pagesizes.A4)
@@ -80,7 +81,8 @@ def convert_report_lab(zip_file_name: str, out_folder: Path) -> None:
             try:
                 pil_image: PIL.Image = PIL.Image.open(buffer)
             except IOError as iox:
-                print(f"IOError! Image '{image_name}' for zip '{zip_file_name}' failed to convert to PIL Image. File is skipped.\n{iox}")
+                print(f"IOError! Image '{image_name}' for zip '{zip_file_name}' failed to convert to PIL Image. File is skipped.")
+                tb = traceback.print_exc()
                 continue
 
             # stretch image to A4 size, while preserving aspect
@@ -91,7 +93,7 @@ def convert_report_lab(zip_file_name: str, out_folder: Path) -> None:
             rl_canvas.showPage()
 
         # create pdf file
-        print(f"Saved as '{pdf_file_name}'")
+        print(f"Try to save as '{pdf_file_path}'")
         rl_canvas.save()
 
 
@@ -105,7 +107,7 @@ def convert_img2pdf(zip_file_name: str, out_folder: Path) -> None:
     """
     print(f"Process zip: '{zip_file_name}' in bulk using image2pdf")
     pdf_file_name: str = change_file_name_ext(zip_file_name, "pdf")
-    pdf_file_path: str = Path.resolve(out_folder, pdf_file_name)
+    pdf_file_path: str = str(out_folder.joinpath(pdf_file_name).resolve())
 
     with zipfile.ZipFile(zip_file_name, "r") as zip_input, open(pdf_file_path, "wb") as pdf_output:
         image_buffers = [io.BytesIO(zip_input.read(image_name)) for image_name in zip_input.namelist()]
@@ -120,7 +122,7 @@ def main(argv=sys.argv):
     parser.add_argument("-f", "--files", nargs=argparse.ONE_OR_MORE, required=False, help="one or more zip files to convert", type=str)
     parser.add_argument("-d", "--directories", nargs=argparse.ONE_OR_MORE, required=False, help="onr or more directories to look for *.zip files. May be recursive with -r option", type=str)
     parser.add_argument("-r", "--recursive", required=False, help="recursively look under directories specified by -d", action='store_const', const=True)
-    parser.add_argument("-a", "--algorithm", nargs=None, choices=['img2pdf', 'reportlab'], required=True, help="determine whether to use 'reportlab' or 'img2pdf' algorithm.", type=str)
+    parser.add_argument("-a", "--algorithm", nargs=None, choices=['img2pdf', 'reportlab'], required=False, help="determine whether to use 'reportlab' or 'img2pdf' algorithm.", type=str)
     parser.add_argument("-o", "--output-path", nargs=None, required=False, help="set the output path of the PDF. default folder is chdir", type=str)
     parser.add_argument("-v", "--version", action='version', version='%(prog)s 1.0', help="show this application version")
 
@@ -150,9 +152,12 @@ def main(argv=sys.argv):
 
     # Determine algorithm, args has been validated by arg parser
     if args.algorithm == 'reportlab':
-        convert = convert_report_lab
+        convert = convert_reportlab
     elif args.algorithm == 'img2pdf':
         convert = convert_img2pdf
+    else:
+        # currently reportlab is the default, may be changed
+        convert = convert_reportlab
 
     # Get the output folder
     if args.output_path is None:
@@ -165,8 +170,9 @@ def main(argv=sys.argv):
         try:
             convert(name, output_folder)
         except Exception as ex:
-            print(f"Error! Unable to process zip '{name}'.\n{ex}")
-            continue
+            print(f"Error! Unable to process zip '{name}'.")
+            tb = traceback.print_exc()
+            break
 
 
 if __name__ == "__main__":
